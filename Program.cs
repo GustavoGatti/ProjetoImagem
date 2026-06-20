@@ -1,4 +1,4 @@
-﻿// Projeto: ImageAverageFilterSkiaSharp
+// Projeto: ImageAverageFilterSkiaSharp
 // Framework: .NET 10
 //
 // Instalação:
@@ -12,7 +12,6 @@
 // - Salva em Desktop/processadas
 
 using SkiaSharp;
-using System.Xml.Linq;
 
 namespace ImageAverageFilterSkiaSharp;
 
@@ -22,7 +21,7 @@ class Program
     {
         string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
 
-        string inputFolder = Path.Combine(desktop, "imagens");
+        string inputFolder = Path.Combine(desktop, "Aniversário_3_anos_Maria Alice\\Tratadas\\teste");
         string outputFolder = Path.Combine(desktop, "processadas");
 
         Directory.CreateDirectory(outputFolder);
@@ -54,7 +53,13 @@ class Program
 
             using SKBitmap bitmap = SKBitmap.Decode(arquivo);
 
-            using SKBitmap resultado = AplicarFiltroMedia(bitmap);
+            Console.WriteLine($"{bitmap.Width} x {bitmap.Height}");
+
+            using SKBitmap resultado = CorrigirManchaSensor(
+                                        bitmap,
+                                        centroX: 1488,
+                                        centroY: 780,
+                                        raio: 18);
 
             string nomeArquivo = Path.GetFileNameWithoutExtension(arquivo);
             string extensao = Path.GetExtension(arquivo);
@@ -72,59 +77,21 @@ class Program
         Console.WriteLine("Processamento concluído.");
     }
 
-    static SKBitmap AplicarFiltroMedia(SKBitmap original)
+    static SKBitmap CorrigirManchaSensorEscalado(SKBitmap original)
     {
-        int largura = original.Width;
-        int altura = original.Height;
+        double xRel = 492.0 / 992.0;
+        double yRel = 258.0 / 1488.0;
 
-        SKBitmap novaImagem = new SKBitmap(largura, altura);
+        int x = (int)(original.Width * xRel);
+        int y = (int)(original.Height * yRel);
 
-        // Copia bordas originais
-        for (int y = 0; y < altura; y++)
-        {
-            for (int x = 0; x < largura; x++)
-            {
-                novaImagem.SetPixel(x, y, original.GetPixel(x, y));
-            }
-        }
+        int raio = Math.Max(10, original.Width / 600);
 
-        // Percorre região interna
-        for (int y = 1; y < altura - 1; y++)
-        {
-            for (int x = 1; x < largura - 1; x++)
-            {
-                int somaR = 0;
-                int somaG = 0;
-                int somaB = 0;
-
-                // Região 3x3
-                for (int ky = -1; ky <= 1; ky++)
-                {
-                    for (int kx = -1; kx <= 1; kx++)
-                    {
-                        SKColor vizinho = original.GetPixel(x + kx, y + ky);
-
-                        somaR += vizinho.Red;
-                        somaG += vizinho.Green;
-                        somaB += vizinho.Blue;
-                    }
-                }
-
-                byte mediaR = (byte)(somaR / 9);
-                byte mediaG = (byte)(somaG / 9);
-                byte mediaB = (byte)(somaB / 9);
-
-                SKColor novaCor = new SKColor(
-                    mediaR,
-                    mediaG,
-                    mediaB
-                );
-
-                novaImagem.SetPixel(x, y, novaCor);
-            }
-        }
-
-        return novaImagem;
+        return CorrigirManchaSensor(
+            original,
+            x,
+            y,
+            raio);
     }
 
     static void SalvarBitmap(SKBitmap bitmap, string caminho, string extensao)
@@ -143,5 +110,88 @@ class Program
         using FileStream stream = File.OpenWrite(caminho);
 
         data.SaveTo(stream);
+    }
+    static SKBitmap CorrigirManchaSensor(
+    SKBitmap original,
+    int centroX,
+    int centroY,
+    int raio)
+    {
+        int largura = original.Width;
+        int altura = original.Height;
+
+        SKBitmap nova = new SKBitmap(largura, altura);
+
+        for (int y = 0; y < altura; y++)
+        {
+            for (int x = 0; x < largura; x++)
+            {
+                nova.SetPixel(x, y, original.GetPixel(x, y));
+            }
+        }
+
+        List<byte> reds = new();
+        List<byte> greens = new();
+        List<byte> blues = new();
+
+        // coleta pixels ao redor da mancha
+        for (int y = centroY - raio * 3; y <= centroY + raio * 3; y++)
+        {
+            for (int x = centroX - raio * 3; x <= centroX + raio * 3; x++)
+            {
+                if (x < 0 || x >= largura ||
+                    y < 0 || y >= altura)
+                    continue;
+
+                double dist = Math.Sqrt(
+                    (x - centroX) * (x - centroX) +
+                    (y - centroY) * (y - centroY));
+
+                if (dist < raio + 5)
+                    continue;
+
+                if (dist > raio * 3)
+                    continue;
+
+                var cor = original.GetPixel(x, y);
+
+                reds.Add(cor.Red);
+                greens.Add(cor.Green);
+                blues.Add(cor.Blue);
+            }
+        }
+
+        reds.Sort();
+        greens.Sort();
+        blues.Sort();
+
+        byte r = reds[reds.Count / 2];
+        byte g = greens[greens.Count / 2];
+        byte b = blues[blues.Count / 2];
+
+        // preenche a mancha
+        for (int y = centroY - raio; y <= centroY + raio; y++)
+        {
+            for (int x = centroX - raio; x <= centroX + raio; x++)
+            {
+                if (x < 0 || x >= largura ||
+                    y < 0 || y >= altura)
+                    continue;
+
+                double dist = Math.Sqrt(
+                    (x - centroX) * (x - centroX) +
+                    (y - centroY) * (y - centroY));
+
+                if (dist <= raio)
+                {
+                    nova.SetPixel(
+                        x,
+                        y,
+                        new SKColor(r, g, b));
+                }
+            }
+        }
+
+        return nova;
     }
 }
